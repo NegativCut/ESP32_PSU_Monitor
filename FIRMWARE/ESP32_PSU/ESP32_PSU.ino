@@ -1,6 +1,6 @@
 /*********************************************************************
  *  ESP32-C3 → Nextion @ 115200: FULL SKETCH
- *  Version: 1.0.5
+ *  Version: 1.0.6
  *  S1 (D5) → OP1 (D2) → t12
  *  S2 (D6) → OP2 (D3) → t13
  *  S3 (D7) → OP3 (D4) → t14
@@ -17,7 +17,7 @@
  *  NON-BLOCKING | HARDWARE DEBOUNCED
  *********************************************************************/
 
-#define FW_VERSION "1.0.5"
+#define FW_VERSION "1.0.6"
 
 #include <Wire.h>
 #include "INA3221.h"
@@ -95,6 +95,7 @@ const uint32_t MCP_WARN_INTERVAL_MS = 5000;
 
 void setup() {
   Serial.begin(115200);
+  delay(2000);  // Allow serial monitor to connect
   Nextion.begin(115200, SERIAL_8N1, 21, 20);
 
   // ——— 1. FORCE ALL OP LOW FIRST ———
