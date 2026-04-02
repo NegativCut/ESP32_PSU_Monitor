@@ -1,6 +1,6 @@
 /*********************************************************************
  *  ESP32-C3 → Nextion @ 115200: FULL SKETCH
- *  Version: 1.0.1
+ *  Version: 1.0.2
  *  S1 (D5) → OP1 (D2) → t12
  *  S2 (D6) → OP2 (D3) → t13
  *  S3 (D7) → OP3 (D4) → t14
@@ -17,7 +17,7 @@
  *  NON-BLOCKING | HARDWARE DEBOUNCED
  *********************************************************************/
 
-#define FW_VERSION "1.0.1"
+#define FW_VERSION "1.0.2"
 
 #include <Wire.h>
 #include "INA3221.h"
@@ -163,23 +163,14 @@ void loop() {
     float filteredI = currentEMA[currentChannel].update(mA);
     float filteredP = powerEMA[currentChannel].update(mW);
 
-    // Format and send voltage (xx.xx V)
-    char bufV[8];
-    snprintf(bufV, sizeof(bufV), "%05.2f", filteredV);
-    String cmdV = "t"; cmdV += VOLTAGE_FIELDS[currentChannel]; cmdV += F(".txt=\""); cmdV += bufV; cmdV += '"';
-    sendCmd(cmdV.c_str());
-
-    // Format and send current (xxxx mA)
-    char bufI[8];
-    snprintf(bufI, sizeof(bufI), "%04.0f", filteredI);
-    String cmdI = "t"; cmdI += CURRENT_FIELDS[currentChannel]; cmdI += F(".txt=\""); cmdI += bufI; cmdI += '"';
-    sendCmd(cmdI.c_str());
-
-    // Format and send power (xxxx mW)
-    char bufP[8];
-    snprintf(bufP, sizeof(bufP), "%04.0f", filteredP);
-    String cmdP = "t"; cmdP += POWER_FIELDS[currentChannel]; cmdP += F(".txt=\""); cmdP += bufP; cmdP += '"';
-    sendCmd(cmdP.c_str());
+    // Format and send voltage (xx.xx V), current (xxxx mA), power (xxxx mW)
+    char cmd[24];
+    snprintf(cmd, sizeof(cmd), "t%d.txt=\"%05.2f\"", VOLTAGE_FIELDS[currentChannel], filteredV);
+    sendCmd(cmd);
+    snprintf(cmd, sizeof(cmd), "t%d.txt=\"%04.0f\"", CURRENT_FIELDS[currentChannel], filteredI);
+    sendCmd(cmd);
+    snprintf(cmd, sizeof(cmd), "t%d.txt=\"%04.0f\"", POWER_FIELDS[currentChannel], filteredP);
+    sendCmd(cmd);
 
     currentChannel = (currentChannel + 1) % 3;
   }
@@ -191,12 +182,11 @@ void loop() {
     float v0 = readVoltage(A0);  // A0 = CH0
     float v1 = readVoltage(A1);  // A1 = CH1
 
-    char buf0[6], buf1[6];
-    snprintf(buf0, sizeof(buf0), "%.2f", v0);
-    snprintf(buf1, sizeof(buf1), "%.2f", v1);
-
-    sendCmd("t3.txt=\"" + String(buf0) + "\"");
-    sendCmd("t4.txt=\"" + String(buf1) + "\"");
+    char cmd[20];
+    snprintf(cmd, sizeof(cmd), "t3.txt=\"%.2f\"", v0);
+    sendCmd(cmd);
+    snprintf(cmd, sizeof(cmd), "t4.txt=\"%.2f\"", v1);
+    sendCmd(cmd);
   }
 
   // ——— 3. FAULT MONITORING (MCP23017) ———
@@ -212,10 +202,11 @@ void loop() {
   static uint32_t lastPrint = 0;
   if (Serial && now - lastPrint >= 1000) {
     lastPrint = now;
-    Serial.printf("CH1: %.2fV %.0fmA %.0fmW | CH2: %.2fV %.0fmA %.0fmW | CH3: %.2fV %.0fmA %.0fmW\n",
+    Serial.printf("CH1: %.2fV %.0fmA %.0fmW | CH2: %.2fV %.0fmA %.0fmW | CH3: %.2fV %.0fmA %.0fmW | heap=%lu\n",
                   INA.getBusVoltage(0), INA.getCurrent_mA(0), INA.getPower_mW(0),
                   INA.getBusVoltage(1), INA.getCurrent_mA(1), INA.getPower_mW(1),
-                  INA.getBusVoltage(2), INA.getCurrent_mA(2), INA.getPower_mW(2));
+                  INA.getBusVoltage(2), INA.getCurrent_mA(2), INA.getPower_mW(2),
+                  (unsigned long)ESP.getFreeHeap());
   }
 }
 
@@ -255,17 +246,15 @@ void updateSwitchesAndOutputs() {
 }
 
 void updateLabelVisual(const char* label, bool is_on) {
-  if (is_on) {
-    sendCmd(String(label) + ".bco=" + String(T_BCO_ON));
-    sendCmd(String(label) + ".pco=" + String(T_PCO));
-    sendCmd(String(label) + ".ycen=1");
-    sendCmd(String(label) + ".txt=\"ON\"");
-  } else {
-    sendCmd(String(label) + ".bco=" + String(T_BCO_OFF));
-    sendCmd(String(label) + ".pco=" + String(T_PCO));
-    sendCmd(String(label) + ".ycen=1");
-    sendCmd(String(label) + ".txt=\"OFF\"");
-  }
+  char cmd[24];
+  snprintf(cmd, sizeof(cmd), "%s.bco=%u", label, is_on ? T_BCO_ON : T_BCO_OFF);
+  sendCmd(cmd);
+  snprintf(cmd, sizeof(cmd), "%s.pco=%u", label, T_PCO);
+  sendCmd(cmd);
+  snprintf(cmd, sizeof(cmd), "%s.ycen=1", label);
+  sendCmd(cmd);
+  snprintf(cmd, sizeof(cmd), "%s.txt=\"%s\"", label, is_on ? "ON" : "OFF");
+  sendCmd(cmd);
 }
 
 float readVoltage(uint8_t channel) {
@@ -273,7 +262,7 @@ float readVoltage(uint8_t channel) {
   return raw * 3.3f / 4095.0f;
 }
 
-void sendCmd(const String& cmd) {
+void sendCmd(const char* cmd) {
   Nextion.print(cmd);
   Nextion.write(0xFF); Nextion.write(0xFF); Nextion.write(0xFF);
 }
@@ -325,10 +314,11 @@ void updateFaultIndicators() {
   lastFaultState = faultBits;
 
   // Check each fault line (active LOW = fault)
+  char cmd[20];
   for (uint8_t i = 0; i < 4; i++) {
     bool fault = !(faultBits & (1 << i));  // LOW = fault
     uint16_t color = fault ? FAULT_COLOR_FAULT : FAULT_COLOR_OK;
-    String cmd = "t"; cmd += FAULT_FIELDS[i]; cmd += ".bco="; cmd += color;
-    sendCmd(cmd.c_str());
+    snprintf(cmd, sizeof(cmd), "t%d.bco=%u", FAULT_FIELDS[i], color);
+    sendCmd(cmd);
   }
 }
