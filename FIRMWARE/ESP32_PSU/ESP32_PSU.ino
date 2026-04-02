@@ -1,6 +1,6 @@
 /*********************************************************************
  *  ESP32-C3 → Nextion @ 115200: FULL SKETCH
- *  Version: 1.0.2
+ *  Version: 1.0.3
  *  S1 (D5) → OP1 (D2) → t12
  *  S2 (D6) → OP2 (D3) → t13
  *  S3 (D7) → OP3 (D4) → t14
@@ -17,7 +17,7 @@
  *  NON-BLOCKING | HARDWARE DEBOUNCED
  *********************************************************************/
 
-#define FW_VERSION "1.0.2"
+#define FW_VERSION "1.0.3"
 
 #include <Wire.h>
 #include "INA3221.h"
@@ -30,10 +30,6 @@ const uint8_t MCP23017_ADDR = 0x27;
 const uint8_t MCP_IODIRA    = 0x00;  // Direction register (1=input)
 const uint8_t MCP_GPPUA     = 0x0C;  // Pull-up register (1=enabled)
 const uint8_t MCP_GPIOA     = 0x12;  // GPIO read register
-
-// ——— OUTPUT POLARITY ———
-constexpr bool OUTPUT_ACTIVE_HIGH = true;
-// ——————————————————————
 
 // ——— PINS ———
 const uint8_t PIN_S1  = 5;  // D5 — Active HIGH from debounce
@@ -67,20 +63,19 @@ public:
 EMA busEMA[3];
 EMA currentEMA[3];
 EMA powerEMA[3];
+float lastV[3] = {0};
+float lastI[3] = {0};
+float lastP[3] = {0};
 
 // ——— NEXTION FIELD MAPPING ———
-const uint8_t VOLTAGE_FIELDS[3] = {0, 1, 2};     // t0, t1, t2
 const uint8_t CURRENT_FIELDS[3] = {15, 16, 17};  // t15, t16, t17
 const uint8_t POWER_FIELDS[3]   = {18, 19, 20};  // t18, t19, t20
 
 // ——— FAULT INDICATORS ———
 const uint8_t FAULT_FIELDS[4] = {27, 28, 29, 30};  // t27=TC, t28=WAR, t29=CRI, t30=PV
-const uint16_t FAULT_COLOR_OK    = 1728;   // No fault
-const uint16_t FAULT_COLOR_FAULT = 63488;  // Fault active
 uint8_t lastFaultState = 0xFF;  // Track previous state to avoid unnecessary updates
 
 // ——— SWITCH STATE ———
-bool switchState[3] = {false};
 bool s1_latched = false;
 bool s2_latched = false;
 bool s3_latched = false;
@@ -137,9 +132,9 @@ void setup() {
   sendCmd(F("page 0"));
   delay(400);
 
-  // ——— 6. START ALL SWITCHES OFF ———
+  // ——— 6. START ALL SWITCHES OFF — set static label properties once ———
   s1_latched = s2_latched = s3_latched = false;
-  switchState[0] = switchState[1] = switchState[2] = false;
+  sendCmd("t12.ycen=1"); sendCmd("t13.ycen=1"); sendCmd("t14.ycen=1");
 
   lastVoltageUpdate = lastADCUpdate = lastFaultUpdate = millis();
 
@@ -158,14 +153,14 @@ void loop() {
     float mA   = INA.getCurrent_mA(currentChannel);
     float mW   = INA.getPower_mW(currentChannel);
 
-    // Apply EMA filtering
-    float filteredV = busEMA[currentChannel].update(busV);
-    float filteredI = currentEMA[currentChannel].update(mA);
-    float filteredP = powerEMA[currentChannel].update(mW);
+    // Apply EMA filtering and cache for serial print
+    float filteredV = lastV[currentChannel] = busEMA[currentChannel].update(busV);
+    float filteredI = lastI[currentChannel] = currentEMA[currentChannel].update(mA);
+    float filteredP = lastP[currentChannel] = powerEMA[currentChannel].update(mW);
 
     // Format and send voltage (xx.xx V), current (xxxx mA), power (xxxx mW)
     char cmd[24];
-    snprintf(cmd, sizeof(cmd), "t%d.txt=\"%05.2f\"", VOLTAGE_FIELDS[currentChannel], filteredV);
+    snprintf(cmd, sizeof(cmd), "t%d.txt=\"%05.2f\"", currentChannel, filteredV);
     sendCmd(cmd);
     snprintf(cmd, sizeof(cmd), "t%d.txt=\"%04.0f\"", CURRENT_FIELDS[currentChannel], filteredI);
     sendCmd(cmd);
@@ -203,9 +198,9 @@ void loop() {
   if (Serial && now - lastPrint >= 1000) {
     lastPrint = now;
     Serial.printf("CH1: %.2fV %.0fmA %.0fmW | CH2: %.2fV %.0fmA %.0fmW | CH3: %.2fV %.0fmA %.0fmW | heap=%lu\n",
-                  INA.getBusVoltage(0), INA.getCurrent_mA(0), INA.getPower_mW(0),
-                  INA.getBusVoltage(1), INA.getCurrent_mA(1), INA.getPower_mW(1),
-                  INA.getBusVoltage(2), INA.getCurrent_mA(2), INA.getPower_mW(2),
+                  lastV[0], lastI[0], lastP[0],
+                  lastV[1], lastI[1], lastP[1],
+                  lastV[2], lastI[2], lastP[2],
                   (unsigned long)ESP.getFreeHeap());
   }
 }
@@ -216,7 +211,6 @@ void updateSwitchesAndOutputs() {
   bool s1_current = (digitalRead(PIN_S1) == HIGH);
   if (s1_last && !s1_current) {
     s1_latched = !s1_latched;
-    switchState[0] = s1_latched;
     digitalWrite(PIN_OP1, s1_latched ? HIGH : LOW);
     updateLabelVisual("t12", s1_latched);
   }
@@ -227,7 +221,6 @@ void updateSwitchesAndOutputs() {
   bool s2_current = (digitalRead(PIN_S2) == HIGH);
   if (s2_last && !s2_current) {
     s2_latched = !s2_latched;
-    switchState[1] = s2_latched;
     digitalWrite(PIN_OP2, s2_latched ? HIGH : LOW);
     updateLabelVisual("t13", s2_latched);
   }
@@ -238,7 +231,6 @@ void updateSwitchesAndOutputs() {
   bool s3_current = (digitalRead(PIN_S3) == HIGH);
   if (s3_last && !s3_current) {
     s3_latched = !s3_latched;
-    switchState[2] = s3_latched;
     digitalWrite(PIN_OP3, s3_latched ? HIGH : LOW);
     updateLabelVisual("t14", s3_latched);
   }
@@ -250,8 +242,6 @@ void updateLabelVisual(const char* label, bool is_on) {
   snprintf(cmd, sizeof(cmd), "%s.bco=%u", label, is_on ? T_BCO_ON : T_BCO_OFF);
   sendCmd(cmd);
   snprintf(cmd, sizeof(cmd), "%s.pco=%u", label, T_PCO);
-  sendCmd(cmd);
-  snprintf(cmd, sizeof(cmd), "%s.ycen=1", label);
   sendCmd(cmd);
   snprintf(cmd, sizeof(cmd), "%s.txt=\"%s\"", label, is_on ? "ON" : "OFF");
   sendCmd(cmd);
@@ -287,7 +277,7 @@ bool mcpWriteReg(uint8_t reg, uint8_t value) {
 uint8_t mcpReadReg(uint8_t reg, bool* success) {
   Wire.beginTransmission(MCP23017_ADDR);
   Wire.write(reg);
-  uint8_t err = Wire.endTransmission();
+  uint8_t err = Wire.endTransmission(false);  // repeated start
   if (err != 0) {
     Serial.printf("MCP23017 read error: reg=0x%02X err=%d\n", reg, err);
     if (success) *success = false;
@@ -317,7 +307,7 @@ void updateFaultIndicators() {
   char cmd[20];
   for (uint8_t i = 0; i < 4; i++) {
     bool fault = !(faultBits & (1 << i));  // LOW = fault
-    uint16_t color = fault ? FAULT_COLOR_FAULT : FAULT_COLOR_OK;
+    uint16_t color = fault ? T_BCO_ON : T_BCO_OFF;
     snprintf(cmd, sizeof(cmd), "t%d.bco=%u", FAULT_FIELDS[i], color);
     sendCmd(cmd);
   }
