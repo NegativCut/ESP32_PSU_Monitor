@@ -1,5 +1,6 @@
 /*********************************************************************
  *  ESP32-C3 → Nextion @ 115200: FULL SKETCH
+ *  Version: 1.0.1
  *  S1 (D5) → OP1 (D2) → t12
  *  S2 (D6) → OP2 (D3) → t13
  *  S3 (D7) → OP3 (D4) → t14
@@ -7,7 +8,7 @@
  *    Voltage: CH1→t0,  CH2→t1,  CH3→t2  (xx.xx V)
  *    Current: CH1→t15, CH2→t16, CH3→t17 (xxxx mA)
  *    Power:   CH1→t18, CH2→t19, CH3→t20 (xxxx mW)
- *  MCP23017 (0x20) Fault Indicators (active LOW):
+ *  MCP23017 (0x27) Fault Indicators (active LOW):
  *    GPA0=TC→t27, GPA1=WAR→t28, GPA2=CRI→t29, GPA3=PV→t30
  *  A0 (CH0) → t3 | A1 (CH1) → t4
  *  LATCHING ON FALLING EDGE (HIGH→LOW)
@@ -16,6 +17,8 @@
  *  NON-BLOCKING | HARDWARE DEBOUNCED
  *********************************************************************/
 
+#define FW_VERSION "1.0.1"
+
 #include <Wire.h>
 #include "INA3221.h"
 
@@ -23,7 +26,7 @@ HardwareSerial Nextion(1);
 INA3221 INA(0x40);
 
 // ——— MCP23017 ———
-const uint8_t MCP23017_ADDR = 0x20;
+const uint8_t MCP23017_ADDR = 0x27;
 const uint8_t MCP_IODIRA    = 0x00;  // Direction register (1=input)
 const uint8_t MCP_GPPUA     = 0x0C;  // Pull-up register (1=enabled)
 const uint8_t MCP_GPIOA     = 0x12;  // GPIO read register
@@ -140,7 +143,7 @@ void setup() {
 
   lastVoltageUpdate = lastADCUpdate = lastFaultUpdate = millis();
 
-  Serial.println(F("STARTUP: OP1/OP2/OP3 = LOW | t12/t13/t14 = HMI DEFAULT"));
+  Serial.println(F("FW v" FW_VERSION " | STARTUP: OP1/OP2/OP3 = LOW | t12/t13/t14 = HMI DEFAULT"));
 }
 
 void loop() {
