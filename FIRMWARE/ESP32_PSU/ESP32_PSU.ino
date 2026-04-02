@@ -1,6 +1,6 @@
 /*********************************************************************
  *  ESP32-C3 → Nextion @ 115200: FULL SKETCH
- *  Version: 1.0.3
+ *  Version: 1.0.4
  *  S1 (D5) → OP1 (D2) → t12
  *  S2 (D6) → OP2 (D3) → t13
  *  S3 (D7) → OP3 (D4) → t14
@@ -17,7 +17,7 @@
  *  NON-BLOCKING | HARDWARE DEBOUNCED
  *********************************************************************/
 
-#define FW_VERSION "1.0.3"
+#define FW_VERSION "1.0.4"
 
 #include <Wire.h>
 #include "INA3221.h"
@@ -277,7 +277,7 @@ bool mcpWriteReg(uint8_t reg, uint8_t value) {
 uint8_t mcpReadReg(uint8_t reg, bool* success) {
   Wire.beginTransmission(MCP23017_ADDR);
   Wire.write(reg);
-  uint8_t err = Wire.endTransmission(false);  // repeated start
+  uint8_t err = Wire.endTransmission();
   if (err != 0) {
     Serial.printf("MCP23017 read error: reg=0x%02X err=%d\n", reg, err);
     if (success) *success = false;
