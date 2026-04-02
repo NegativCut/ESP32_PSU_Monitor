@@ -1,6 +1,6 @@
 /*********************************************************************
  *  ESP32-C3 → Nextion @ 115200: FULL SKETCH
- *  Version: 1.0.4
+ *  Version: 1.0.5
  *  S1 (D5) → OP1 (D2) → t12
  *  S2 (D6) → OP2 (D3) → t13
  *  S3 (D7) → OP3 (D4) → t14
@@ -17,7 +17,7 @@
  *  NON-BLOCKING | HARDWARE DEBOUNCED
  *********************************************************************/
 
-#define FW_VERSION "1.0.4"
+#define FW_VERSION "1.0.5"
 
 #include <Wire.h>
 #include "INA3221.h"
@@ -80,10 +80,18 @@ bool s1_latched = false;
 bool s2_latched = false;
 bool s3_latched = false;
 
-// ——— t12/t13/t14 COLORS ———
-const uint16_t T_BCO_OFF = 1728;
-const uint16_t T_PCO     = 65504;
-const uint16_t T_BCO_ON  = 63488;
+// ——— COLORS ———
+const uint16_t T_BCO_OFF      = 1728;   // Grey  — off / no fault
+const uint16_t T_PCO          = 65504;  // Yellow — label text
+const uint16_t T_BCO_ON       = 63488;  // Red   — on / fault active
+const uint16_t T_BCO_COMMS_ERR = 64800; // Orange — I2C comms lost
+
+// ——— MCP23017 COMMS HEALTH ———
+const uint8_t  MCP_ERR_THRESHOLD = 3;    // consecutive failures before flagging
+uint8_t  mcpErrorCount  = 0;
+bool     mcpCommsLost   = false;
+uint32_t lastMcpWarnMs  = 0;
+const uint32_t MCP_WARN_INTERVAL_MS = 5000;
 
 void setup() {
   Serial.begin(115200);
@@ -120,7 +128,14 @@ void setup() {
     while (true) { delay(1000); }
   }
   mcpWriteReg(MCP_GPPUA, 0x0F);   // Enable pull-ups on GPA0-3
-  Serial.println(F("MCP23017 initialized"));
+  // Readback IODIRA to confirm write landed
+  bool rbOk = false;
+  uint8_t rbVal = mcpReadReg(MCP_IODIRA, &rbOk);
+  if (!rbOk || rbVal != 0x0F) {
+    Serial.printf("FATAL: MCP23017 verify failed — expected 0x0F got 0x%02X. Halting.\n", rbVal);
+    while (true) { delay(1000); }
+  }
+  Serial.println(F("MCP23017 OK — IODIRA verified"));
 
   // ——— 4. ADC CONFIG ———
   analogReadResolution(12);
@@ -285,7 +300,6 @@ uint8_t mcpReadReg(uint8_t reg, bool* success) {
   }
   Wire.requestFrom(MCP23017_ADDR, (uint8_t)1);
   if (!Wire.available()) {
-    Serial.println(F("MCP23017 no data available"));
     if (success) *success = false;
     return 0xFF;
   }
@@ -293,10 +307,40 @@ uint8_t mcpReadReg(uint8_t reg, bool* success) {
   return Wire.read();
 }
 
+void setFaultFieldsColor(uint16_t color) {
+  char cmd[20];
+  for (uint8_t i = 0; i < 4; i++) {
+    snprintf(cmd, sizeof(cmd), "t%d.bco=%u", FAULT_FIELDS[i], color);
+    sendCmd(cmd);
+  }
+}
+
 void updateFaultIndicators() {
   bool success = false;
   uint8_t gpioa = mcpReadReg(MCP_GPIOA, &success);
-  if (!success) return;  // Skip update on I2C error
+
+  if (!success) {
+    mcpErrorCount++;
+    if (mcpErrorCount >= MCP_ERR_THRESHOLD && !mcpCommsLost) {
+      mcpCommsLost = true;
+      lastFaultState = 0xFF;  // Force full redraw on recovery
+      setFaultFieldsColor(T_BCO_COMMS_ERR);
+      Serial.println(F("ERROR: MCP23017 comms lost — fault indicators unreliable"));
+      lastMcpWarnMs = millis();
+    } else if (mcpCommsLost && (millis() - lastMcpWarnMs >= MCP_WARN_INTERVAL_MS)) {
+      Serial.println(F("ERROR: MCP23017 comms still lost"));
+      lastMcpWarnMs = millis();
+    }
+    return;
+  }
+
+  // Comms healthy — check for recovery
+  if (mcpCommsLost) {
+    mcpCommsLost = false;
+    Serial.println(F("MCP23017 comms recovered"));
+  }
+  mcpErrorCount = 0;
+
   uint8_t faultBits = gpioa & 0x0F;  // Only GPA0-3
 
   // Only update Nextion if state changed
