@@ -1,6 +1,6 @@
 /*********************************************************************
  *  ESP32-C3 → Nextion @ 115200: FULL SKETCH
- *  Version: 1.0.6
+ *  Version: 1.0.7
  *  S1 (D5) → OP1 (D2) → t12
  *  S2 (D6) → OP2 (D3) → t13
  *  S3 (D7) → OP3 (D4) → t14
@@ -17,7 +17,7 @@
  *  NON-BLOCKING | HARDWARE DEBOUNCED
  *********************************************************************/
 
-#define FW_VERSION "1.0.6"
+#define FW_VERSION "1.0.7"
 
 #include <Wire.h>
 #include "INA3221.h"
@@ -73,6 +73,7 @@ const uint8_t POWER_FIELDS[3]   = {18, 19, 20};  // t18, t19, t20
 
 // ——— FAULT INDICATORS ———
 const uint8_t FAULT_FIELDS[4] = {27, 28, 29, 30};  // t27=TC, t28=WAR, t29=CRI, t30=PV
+const char* const FAULT_NAMES[4] = {"TC", "WAR", "CRI", "PV"};
 uint8_t lastFaultState = 0xFF;  // Track previous state to avoid unnecessary updates
 
 // ——— SWITCH STATE ———
@@ -218,6 +219,16 @@ void loop() {
                   lastV[1], lastI[1], lastP[1],
                   lastV[2], lastI[2], lastP[2],
                   (unsigned long)ESP.getFreeHeap());
+    if (mcpCommsLost) {
+      Serial.printf("MCP23017: COMMS LOST (consec err=%u)\n", mcpErrorCount);
+    } else {
+      Serial.printf("MCP23017: TC=%s WAR=%s CRI=%s PV=%s [raw=0x%02X]\n",
+                    !(lastFaultState & 0x01) ? "FAULT" : "ok",
+                    !(lastFaultState & 0x02) ? "FAULT" : "ok",
+                    !(lastFaultState & 0x04) ? "FAULT" : "ok",
+                    !(lastFaultState & 0x08) ? "FAULT" : "ok",
+                    lastFaultState);
+    }
   }
 }
 
@@ -348,10 +359,18 @@ void updateFaultIndicators() {
   if (faultBits == lastFaultState) return;
   lastFaultState = faultBits;
 
+  // Report state change with named bits
+  Serial.printf("MCP23017 fault change [raw=0x%02X]:", faultBits);
+  for (uint8_t i = 0; i < 4; i++) {
+    bool fault = !(faultBits & (1 << i));  // LOW = fault active
+    Serial.printf("  %s=%s", FAULT_NAMES[i], fault ? "FAULT" : "ok");
+  }
+  Serial.println();
+
   // Check each fault line (active LOW = fault)
   char cmd[20];
   for (uint8_t i = 0; i < 4; i++) {
-    bool fault = !(faultBits & (1 << i));  // LOW = fault
+    bool fault = !(faultBits & (1 << i));
     uint16_t color = fault ? T_BCO_ON : T_BCO_OFF;
     snprintf(cmd, sizeof(cmd), "t%d.bco=%u", FAULT_FIELDS[i], color);
     sendCmd(cmd);
