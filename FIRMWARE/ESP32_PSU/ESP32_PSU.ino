@@ -1,6 +1,6 @@
 /*********************************************************************
  *  ESP32-C3 → Nextion @ 115200: FULL SKETCH
- *  Version: 1.0.9
+ *  Version: 1.0.10
  *  S1 (D5) → OP1 (D2) → t12
  *  S2 (D6) → OP2 (D3) → t13
  *  S3 (D7) → OP3 (D4) → t14
@@ -10,6 +10,8 @@
  *    Power:   CH1→t18, CH2→t19, CH3→t20 (xxxx mW)
  *  MCP23017 (0x27) Fault Indicators (active LOW):
  *    GPA0=TC→t27, GPA1=WAR→t28, GPA2=CRI→t29, GPA3=PV→t30
+ *  MCP23017 Redundant Switch Inputs (active LOW, serial only):
+ *    GPB0=B0, GPB1=B1, GPB2=B2, GPB3=B3
  *  A0 (CH0) → t3 | A1 (CH1) → t4
  *  LATCHING ON FALLING EDGE (HIGH→LOW)
  *  OP1/OP2/OP3 = LOW AT STARTUP — GUARANTEED
@@ -17,7 +19,7 @@
  *  NON-BLOCKING | HARDWARE DEBOUNCED
  *********************************************************************/
 
-#define FW_VERSION "1.0.9"
+#define FW_VERSION "1.0.10"
 
 #include <Wire.h>
 #include "INA3221.h"
@@ -27,9 +29,12 @@ INA3221 INA(0x40);
 
 // ——— MCP23017 ———
 const uint8_t MCP23017_ADDR = 0x27;
-const uint8_t MCP_IODIRA    = 0x00;  // Direction register (1=input)
-const uint8_t MCP_GPPUA     = 0x0C;  // Pull-up register (1=enabled)
-const uint8_t MCP_GPIOA     = 0x12;  // GPIO read register
+const uint8_t MCP_IODIRA    = 0x00;  // Port A direction (1=input)
+const uint8_t MCP_IODIRB    = 0x01;  // Port B direction (1=input)
+const uint8_t MCP_GPPUA     = 0x0C;  // Port A pull-ups (1=enabled)
+const uint8_t MCP_GPPUB     = 0x0D;  // Port B pull-ups (1=enabled)
+const uint8_t MCP_GPIOA     = 0x12;  // Port A read register
+const uint8_t MCP_GPIOB     = 0x13;  // Port B read register
 
 // ——— PINS ———
 const uint8_t PIN_S1  = 5;  // D5 — Active HIGH from debounce
@@ -77,6 +82,7 @@ const char* const FAULT_NAMES[4] = {"TC", "WAR", "CRI", "PV"};
 // TC/WAR/CRI: active LOW = fault. PV: active LOW = power valid (good), so active HIGH = fault.
 const bool FAULT_ACTIVE_LOW[4] = {true, true, true, false};
 uint8_t lastFaultState = 0xFF;  // Track previous state to avoid unnecessary updates
+uint8_t lastGpioB     = 0xFF;  // GPB0-3 redundant switch inputs (active LOW)
 
 // ——— SWITCH STATE ———
 bool s1_latched = false;
@@ -140,6 +146,8 @@ void setup() {
     while (true) { delay(1000); }
   }
   Serial.println(F("MCP23017 OK — IODIRA verified"));
+  mcpWriteReg(MCP_IODIRB, 0x0F);   // GPB0-3 as inputs, GPB4-7 as outputs
+  mcpWriteReg(MCP_GPPUB,  0x0F);   // Enable pull-ups on GPB0-3
 
   // ——— 4. ADC CONFIG ———
   analogReadResolution(12);
@@ -225,6 +233,12 @@ void loop() {
                   digitalRead(PIN_S1) ? "HIGH" : "LOW", s1_latched ? "ON" : "OFF",
                   digitalRead(PIN_S2) ? "HIGH" : "LOW", s2_latched ? "ON" : "OFF",
                   digitalRead(PIN_S3) ? "HIGH" : "LOW", s3_latched ? "ON" : "OFF");
+    Serial.printf("MCP GPB: B0=%s B1=%s B2=%s B3=%s [raw=0x%02X]\n",
+                  (lastGpioB & 0x01) ? "open" : "PRESSED",
+                  (lastGpioB & 0x02) ? "open" : "PRESSED",
+                  (lastGpioB & 0x04) ? "open" : "PRESSED",
+                  (lastGpioB & 0x08) ? "open" : "PRESSED",
+                  lastGpioB);
     if (mcpCommsLost) {
       Serial.printf("MCP23017: COMMS LOST (consec err=%u)\n", mcpErrorCount);
     } else {
@@ -358,6 +372,11 @@ void updateFaultIndicators() {
     Serial.println(F("MCP23017 comms recovered"));
   }
   mcpErrorCount = 0;
+
+  // Read GPB0-3 redundant switch inputs (active LOW, pull-up enabled)
+  bool bSuccess = false;
+  uint8_t gpiob = mcpReadReg(MCP_GPIOB, &bSuccess);
+  if (bSuccess) lastGpioB = gpiob & 0x0F;
 
   uint8_t faultBits = gpioa & 0x0F;  // Only GPA0-3
 
