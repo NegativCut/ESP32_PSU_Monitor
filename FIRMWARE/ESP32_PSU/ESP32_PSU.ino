@@ -1,6 +1,6 @@
 /*********************************************************************
  *  ESP32-C3 → Nextion @ 115200: FULL SKETCH
- *  Version: 1.0.10
+ *  Version: 1.0.11
  *  S1 (D5) → OP1 (D2) → t12
  *  S2 (D6) → OP2 (D3) → t13
  *  S3 (D7) → OP3 (D4) → t14
@@ -19,7 +19,7 @@
  *  NON-BLOCKING | HARDWARE DEBOUNCED
  *********************************************************************/
 
-#define FW_VERSION "1.0.10"
+#define FW_VERSION "1.0.11"
 
 #include <Wire.h>
 #include "INA3221.h"
@@ -229,6 +229,7 @@ void loop() {
                   lastV[1], lastI[1], lastP[1],
                   lastV[2], lastI[2], lastP[2],
                   (unsigned long)ESP.getFreeHeap());
+    Serial.printf("A0=%.2fV A1=%.2fV\n", readVoltage(A0), readVoltage(A1));
     Serial.printf("S1=%s(OP1=%s) S2=%s(OP2=%s) S3=%s(OP3=%s)\n",
                   digitalRead(PIN_S1) ? "HIGH" : "LOW", s1_latched ? "ON" : "OFF",
                   digitalRead(PIN_S2) ? "HIGH" : "LOW", s2_latched ? "ON" : "OFF",
