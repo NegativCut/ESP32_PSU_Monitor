@@ -1,6 +1,6 @@
 /*********************************************************************
  *  ESP32-C3 → Nextion @ 115200: FULL SKETCH
- *  Version: 1.0.7
+ *  Version: 1.0.8
  *  S1 (D5) → OP1 (D2) → t12
  *  S2 (D6) → OP2 (D3) → t13
  *  S3 (D7) → OP3 (D4) → t14
@@ -17,7 +17,7 @@
  *  NON-BLOCKING | HARDWARE DEBOUNCED
  *********************************************************************/
 
-#define FW_VERSION "1.0.7"
+#define FW_VERSION "1.0.8"
 
 #include <Wire.h>
 #include "INA3221.h"
@@ -74,6 +74,8 @@ const uint8_t POWER_FIELDS[3]   = {18, 19, 20};  // t18, t19, t20
 // ——— FAULT INDICATORS ———
 const uint8_t FAULT_FIELDS[4] = {27, 28, 29, 30};  // t27=TC, t28=WAR, t29=CRI, t30=PV
 const char* const FAULT_NAMES[4] = {"TC", "WAR", "CRI", "PV"};
+// TC/WAR/CRI: active LOW = fault. PV: active LOW = power valid (good), so active HIGH = fault.
+const bool FAULT_ACTIVE_LOW[4] = {true, true, true, false};
 uint8_t lastFaultState = 0xFF;  // Track previous state to avoid unnecessary updates
 
 // ——— SWITCH STATE ———
@@ -223,10 +225,10 @@ void loop() {
       Serial.printf("MCP23017: COMMS LOST (consec err=%u)\n", mcpErrorCount);
     } else {
       Serial.printf("MCP23017: TC=%s WAR=%s CRI=%s PV=%s [raw=0x%02X]\n",
-                    !(lastFaultState & 0x01) ? "FAULT" : "ok",
-                    !(lastFaultState & 0x02) ? "FAULT" : "ok",
-                    !(lastFaultState & 0x04) ? "FAULT" : "ok",
-                    !(lastFaultState & 0x08) ? "FAULT" : "ok",
+                    !(lastFaultState & 0x01) ? "FAULT" : "ok",   // active LOW
+                    !(lastFaultState & 0x02) ? "FAULT" : "ok",   // active LOW
+                    !(lastFaultState & 0x04) ? "FAULT" : "ok",   // active LOW
+                    (lastFaultState & 0x08)  ? "FAULT" : "ok",   // active HIGH (PV LOW = valid)
                     lastFaultState);
     }
   }
@@ -362,15 +364,17 @@ void updateFaultIndicators() {
   // Report state change with named bits
   Serial.printf("MCP23017 fault change [raw=0x%02X]:", faultBits);
   for (uint8_t i = 0; i < 4; i++) {
-    bool fault = !(faultBits & (1 << i));  // LOW = fault active
+    bool bit = faultBits & (1 << i);
+    bool fault = FAULT_ACTIVE_LOW[i] ? !bit : bit;
     Serial.printf("  %s=%s", FAULT_NAMES[i], fault ? "FAULT" : "ok");
   }
   Serial.println();
 
-  // Check each fault line (active LOW = fault)
+  // Update Nextion fault indicators
   char cmd[20];
   for (uint8_t i = 0; i < 4; i++) {
-    bool fault = !(faultBits & (1 << i));
+    bool bit = faultBits & (1 << i);
+    bool fault = FAULT_ACTIVE_LOW[i] ? !bit : bit;
     uint16_t color = fault ? T_BCO_ON : T_BCO_OFF;
     snprintf(cmd, sizeof(cmd), "t%d.bco=%u", FAULT_FIELDS[i], color);
     sendCmd(cmd);
