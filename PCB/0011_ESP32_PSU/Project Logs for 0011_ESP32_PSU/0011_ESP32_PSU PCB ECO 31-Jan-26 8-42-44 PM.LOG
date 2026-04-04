@@ -1,0 +1,25 @@
+Added Pin To Net: NetName=3V3 Pin=P2-1
+Added Pin To Net: NetName=GND Pin=P2-5
+Added Pin To Net: NetName=3V3 Pin=U5-1
+Added Pin To Net: NetName=S3 Pin=U5-11
+Added Pin To Net: NetName=S2 Pin=U5-12
+Added Pin To Net: NetName=S1 Pin=U5-13
+Added Pin To Net: NetName=GND Pin=U5-14
+Added Pin To Net: NetName=TX Pin=U7-1
+Added Pin To Net: NetName=RX Pin=U7-2
+Added Pin To Net: NetName=3V3 Pin=U7-3
+Added Pin To Net: NetName=GND Pin=U7-4
+Added Pin To Net: NetName=SDA_H Pin=U7-7
+Added Pin To Net: NetName=SCL_H Pin=U7-8
+Added Pin To Net: NetName=GND Pin=U7-9
+Added Pin To Net: NetName=+5 Pin=U7-10
+Added Pin To Net: NetName=RX_H Pin=U7-11
+Added Pin To Net: NetName=TX_H Pin=U7-12
+Added Pin To Net: NetName=SCL_L Pin=U1-5
+Added Pin To Net: NetName=SCL_L Pin=U3-12
+Added Pin To Net: NetName=SCL_L Pin=U7-5
+Added Net: Name=SCL_L
+Added Pin To Net: NetName=SDA_L Pin=U1-4
+Added Pin To Net: NetName=SDA_L Pin=U3-13
+Added Pin To Net: NetName=SDA_L Pin=U7-6
+Added Net: Name=SDA_L

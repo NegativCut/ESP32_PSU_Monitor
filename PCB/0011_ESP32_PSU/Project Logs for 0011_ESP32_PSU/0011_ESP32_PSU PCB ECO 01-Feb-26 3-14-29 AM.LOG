@@ -1,0 +1,10 @@
+Removed Pin From Net: NetName=3V3 Pin=U3-9
+Removed Pin From Net: NetName=SCL_L Pin=U3-12
+Removed Pin From Net: NetName=SDA_L Pin=U3-13
+Removed Pin From Net: NetName=PV Pin=U4-5
+Removed Pin From Net: NetName=CRI Pin=U4-6
+Removed Pin From Net: NetName=WAR Pin=U4-7
+Removed Pin From Net: NetName=TC Pin=U4-8
+Added Pin To Net: NetName=+5 Pin=U3-9
+Added Pin To Net: NetName=SCL_H Pin=U3-12
+Added Pin To Net: NetName=SDA_H Pin=U3-13
